@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<html>
+<!-- https://github.com/iodide-project/pyodide/issues/679#issuecomment-637519913 -->
+<head>
+<script type="text/javascript">window.languagePluginUrl = 'https://pyodide-cdn2.iodide.io/v0.15.0/full/';</script>
+<script src="https://pyodide-cdn2.iodide.io/v0.15.0/full/pyodide.js"></script>
+</head>
+<body>
+<h1>Binary file reader pyodide</h1>
+<h3>for collection.db osu game file</h3>
+<input type="file" onchange="doit();" id="file">
+<div id = "result_id"> </div>
+<script type="text/javascript">
+var content = null;
+function doit() {
+    var file = document.getElementById("file").files[0];
+    var reader = new FileReader();
+    reader.readAsArrayBuffer(file);
+    reader.onload = evt => { 
+    content = evt.target.result; 
+pyodide.runPython(`
+import operator
+from js import content
+from js import result_id
+from struct import unpack
+import io
+
+def nextint(f):
+    return unpack("<I", f.read(4))[0]
+
+
+def nextstr(f):
+    if f.read(1) == 0x00:
+        return
+    len = 0
+    shift = 0
+    while True:
+        byte = ord(f.read(1))
+        len |= (byte & 0b01111111) << shift
+        if (byte & 0b10000000) == 0:
+            break
+        shift += 7
+    return f.read(len).decode("utf-8")
+
+
+def get_collections(osu_db_file):
+    """read .db file, return raw collection"""
+    #print(osu_db_file,'db fiele',type(osu_db_file))
+    # convert to bytes buffer 
+    f = io.BytesIO(osu_db_file)
+    col = {}
+    version = nextint(f)
+    ncol = nextint(f)
+    for i in range(ncol):
+        colname = nextstr(f)
+        col[colname] = []
+        for j in range(nextint(f)):
+            f.read(2)
+            col[colname].append(f.read(32).decode("utf-8"))
+    f.close()
+    return (col, version)
+
+def _check(osu_db_file):
+    _db = osu_db_file.tobytes()
+    print(get_collections(_db))
+    
+
+r = _check(content)
+result_id.innerHTML = '<h1>check console control + shift +k </h1>'
+
+
+`);}}
+languagePluginLoader.then(function () {
+    console.log('Ready');
+});
+</script>
+</body>
