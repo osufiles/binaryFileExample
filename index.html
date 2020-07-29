@@ -7,12 +7,27 @@
 <script src="https://pyodide-cdn2.iodide.io/v0.15.0/full/pyodide.js"></script>
 </head>
 <body>
-<h1>Binary file reader pyodide</h1>
+<h1>Binary file reader & writer pyodide</h1>
 <h3>for collection.db osu game file</h3>
 <input type="file" onchange="doit();" id="file">
+<input type="button" value="Download" onclick="download_f()">
 <div id = "result_id"> </div>
 <script type="text/javascript">
 var content = null;
+
+function download_f() {
+    var fname = "duplicated_db.db";
+    var __data__ = pyodide.globals.new_db;
+    var blob = new Blob([__data__],{type:"application/octet-stream"});
+    var elem = window.document.createElement('a');
+    elem.href = window.URL.createObjectURL(blob);
+    elem.download = fname;
+    document.body.appendChild(elem);
+    elem.click();        
+    document.body.removeChild(elem);
+
+
+};
 function doit() {
     var file = document.getElementById("file").files[0];
     var reader = new FileReader();
@@ -20,7 +35,6 @@ function doit() {
     reader.onload = evt => { 
     content = evt.target.result; 
 pyodide.runPython(`
-import operator
 from js import content
 from js import result_id
 from struct import unpack
@@ -61,14 +75,59 @@ def get_collections(osu_db_file):
     f.close()
     return (col, version)
 
-def _check(osu_db_file):
+
+def write_int(file, integer):
+    int_b = integer.to_bytes(4, "little")
+    file.write(int_b)
+
+
+def get_uleb128(integer):
+    result = 0
+    shift = 0
+    while True:
+        byte = integer
+        result |= (byte & 0x7F) << shift
+        if byte & 0x80 == 0:
+            break
+        shift += 7
+    return result.to_bytes(1, "little")
+
+
+def write_string(file, string):
+    if not string:
+        return bytes([0x00])
+    else:
+        result = bytes([0x0B])
+        result += get_uleb128(len(string))
+        result += string.encode("utf-8")
+        file.write(result)
+
+
+def update_collection(collection_dict,version):
+    """manually add beatmaps to .db file
+    create ingame collections https://github.com/osufiles/osuCollectionManager-backup 
+    """
+    name = 'duplicate_collection'
+    collection_dict[name] = collection_dict[next(iter(collection_dict))]
+    f = io.BytesIO()
+    write_int(f, version)
+    write_int(f, len(collection_dict))
+    for col_name, col_hashes in collection_dict.items():
+        write_string(f, col_name)
+        write_int(f, len(col_hashes))
+        for h in col_hashes:
+            write_string(f, h)
+    f.seek(0)
+    return f
+
+def main(osu_db_file):
     _db = osu_db_file.tobytes()
-    print(get_collections(_db))
+    col,v = get_collections(_db)
+    f = update_collection(col,v)
+    return f.read() 
     
 
-r = _check(content)
-result_id.innerHTML = '<h1>check console control + shift +k </h1>'
-
+new_db = main(content)
 
 `);}}
 languagePluginLoader.then(function () {
